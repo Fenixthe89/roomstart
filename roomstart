@@ -1,0 +1,234 @@
+#!/bin/bash
+
+# ============================================================
+# Script: roomstart
+# Autore: Fenix89
+# Scopo: preparare automaticamente il workspace per una room
+# ============================================================
+
+# ------------------------------------------------------------
+# Configurazione
+# ------------------------------------------------------------
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -f "$SCRIPT_DIR/lib/config.sh" ]; then
+    # shellcheck source=/dev/null
+    source "$SCRIPT_DIR/lib/config.sh"
+else
+    : "${ROOMSTART_BASE:=$HOME/Rooms}"
+    : "${ROOMSTART_NEWROOM:=}"
+    : "${ROOMSTART_LISTENER_PORT:=4444}"
+    : "${ROOMSTART_LAYOUT_ENABLED:=false}"
+fi
+
+BASE="$ROOMSTART_BASE"
+LISTENER_PORT="$ROOMSTART_LISTENER_PORT"
+
+# ------------------------------------------------------------
+# Percorsi
+# ------------------------------------------------------------
+
+ROOM="${1:-}"
+ROOMDIR="$BASE/$ROOM"
+
+MAIN_TERMINAL_ID=$(xdotool getactivewindow)
+
+# ------------------------------------------------------------
+# Geometria finestre
+# (usata solo se ROOMSTART_LAYOUT_ENABLED=true in config.sh)
+# ------------------------------------------------------------
+
+FIREFOX_X="${ROOMSTART_FIREFOX_X:-0}"
+FIREFOX_Y="${ROOMSTART_FIREFOX_Y:-0}"
+FIREFOX_W="${ROOMSTART_FIREFOX_W:-800}"
+FIREFOX_H="${ROOMSTART_FIREFOX_H:-600}"
+
+NOTES_X="${ROOMSTART_NOTES_X:-0}"
+NOTES_Y="${ROOMSTART_NOTES_Y:-0}"
+NOTES_W="${ROOMSTART_NOTES_W:-400}"
+NOTES_H="${ROOMSTART_NOTES_H:-600}"
+
+LISTENER_X="${ROOMSTART_LISTENER_X:-0}"
+LISTENER_Y="${ROOMSTART_LISTENER_Y:-0}"
+LISTENER_W="${ROOMSTART_LISTENER_W:-700}"
+LISTENER_H="${ROOMSTART_LISTENER_H:-280}"
+
+MAIN_X="${ROOMSTART_MAIN_X:-0}"
+MAIN_Y="${ROOMSTART_MAIN_Y:-0}"
+MAIN_W="${ROOMSTART_MAIN_W:-700}"
+MAIN_H="${ROOMSTART_MAIN_H:-800}"
+
+# ------------------------------------------------------------
+# Funzioni
+# ------------------------------------------------------------
+
+wait_for_window_title_id() {
+    local window_title="$1"
+    local window_id=""
+
+    for i in {1..20}; do
+        window_id=$(wmctrl -l |
+            awk -v title="$window_title" \
+                'index($0, title) {print $1; exit}')
+
+        if [ -n "$window_id" ]; then
+            echo "$window_id"
+            return 0
+        fi
+
+        sleep 0.5
+    done
+
+    return 1
+}
+
+wait_for_window_class() {
+    local window_class="$1"
+    local window_id=""
+
+    for i in {1..20}; do
+        window_id=$(wmctrl -lx |
+            awk -v class="$window_class" \
+                'tolower($0) ~ tolower(class) {print $1; exit}')
+
+        if [ -n "$window_id" ]; then
+            echo "$window_id"
+            return 0
+        fi
+
+        sleep 0.5
+    done
+
+    return 1
+}
+
+move_window_by_id() {
+    local window_id="$1"
+    local x="$2"
+    local y="$3"
+    local width="$4"
+    local height="$5"
+
+    wmctrl -i -r "$window_id" \
+        -e "0,$x,$y,$width,$height"
+}
+
+# Trova newroom: prima nella config, poi accanto a roomstart
+# (caso tipico: repo clonato ma non installato), infine nel PATH.
+resolve_newroom() {
+    if [ -n "$ROOMSTART_NEWROOM" ] && [ -x "$ROOMSTART_NEWROOM" ]; then
+        echo "$ROOMSTART_NEWROOM"
+        return 0
+    fi
+
+    if [ -x "$SCRIPT_DIR/newroom" ]; then
+        echo "$SCRIPT_DIR/newroom"
+        return 0
+    fi
+
+    if command -v newroom >/dev/null 2>&1; then
+        command -v newroom
+        return 0
+    fi
+
+    return 1
+}
+
+# ------------------------------------------------------------
+# Controlli
+# ------------------------------------------------------------
+
+if [ -z "$ROOM" ]; then
+    echo "Uso: roomstart NomeRoom"
+    exit 1
+fi
+
+NEWROOM="$(resolve_newroom)"
+if [ -z "$NEWROOM" ]; then
+    echo "Errore: script newroom non trovato."
+    echo "Esegui install.sh oppure metti newroom nel PATH."
+    exit 1
+fi
+
+for command_name in firefox qterminal wmctrl nano nc xdotool; do
+    if ! command -v "$command_name" >/dev/null 2>&1; then
+        echo "Errore: comando '$command_name' non trovato."
+        exit 1
+    fi
+done
+
+# ------------------------------------------------------------
+# Creazione room
+# ------------------------------------------------------------
+
+"$NEWROOM" "$ROOM" || exit 1
+
+# ------------------------------------------------------------
+# Apertura applicazioni
+# ------------------------------------------------------------
+
+# --new-window riduce (ma non elimina del tutto) il rischio di
+# agganciare per sbaglio una finestra Firefox gia' aperta.
+firefox --new-window &
+
+qterminal \
+    --title "Listener - $ROOM" \
+    --workdir "$ROOMDIR" \
+    -e bash -c "nc -lvnp $LISTENER_PORT; exec bash" &
+
+qterminal \
+    --title "Notes - $ROOM" \
+    --workdir "$ROOMDIR" \
+    -e nano notes.md &
+
+# ------------------------------------------------------------
+# Posizionamento finestre (opzionale)
+# ------------------------------------------------------------
+
+if [ "$ROOMSTART_LAYOUT_ENABLED" = "true" ]; then
+
+    FIREFOX_ID=$(wait_for_window_class "firefox")
+    if [ -n "$FIREFOX_ID" ]; then
+        wmctrl -i -r "$FIREFOX_ID" -b remove,maximized_vert,maximized_horz
+        sleep 0.3
+        move_window_by_id "$FIREFOX_ID" "$FIREFOX_X" "$FIREFOX_Y" "$FIREFOX_W" "$FIREFOX_H"
+    else
+        echo "Errore: finestra Firefox non trovata."
+    fi
+
+    NOTES_ID=$(wait_for_window_title_id "Notes - $ROOM")
+    if [ -n "$NOTES_ID" ]; then
+        wmctrl -i -r "$NOTES_ID" -b remove,maximized_vert,maximized_horz
+        sleep 0.2
+        move_window_by_id "$NOTES_ID" "$NOTES_X" "$NOTES_Y" "$NOTES_W" "$NOTES_H"
+    else
+        echo "Errore: finestra Notes non trovata."
+    fi
+
+    LISTENER_ID=$(wait_for_window_title_id "Listener - $ROOM")
+    if [ -n "$LISTENER_ID" ]; then
+        wmctrl -i -r "$LISTENER_ID" -b remove,maximized_vert,maximized_horz
+        sleep 0.2
+        move_window_by_id "$LISTENER_ID" "$LISTENER_X" "$LISTENER_Y" "$LISTENER_W" "$LISTENER_H"
+    else
+        echo "Errore: finestra Listener non trovata."
+    fi
+
+    if [ -n "$MAIN_TERMINAL_ID" ]; then
+        wmctrl -i -r "$MAIN_TERMINAL_ID" -b remove,maximized_vert,maximized_horz
+        sleep 0.2
+        move_window_by_id "$MAIN_TERMINAL_ID" "$MAIN_X" "$MAIN_Y" "$MAIN_W" "$MAIN_H"
+    else
+        echo "Errore: terminale principale non trovato."
+    fi
+
+    sleep 0.2
+    xdotool windowactivate "$MAIN_TERMINAL_ID"
+fi
+
+# ------------------------------------------------------------
+# Trasforma il terminale corrente nel terminale principale della room
+# ------------------------------------------------------------
+cd "$ROOMDIR" || exit 1
+exec "$SHELL" -i

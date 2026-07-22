@@ -1,0 +1,164 @@
+#!/bin/bash
+# ============================================================
+# Script: newroom
+# Autore: Fenix89
+# Scopo: creare automaticamente la struttura di una nuova room
+# ============================================================
+
+# Config condivisa con roomstart (fallback se manca lib/config.sh)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [ -f "$SCRIPT_DIR/lib/config.sh" ]; then
+    # shellcheck source=/dev/null
+    source "$SCRIPT_DIR/lib/config.sh"
+else
+    : "${ROOMSTART_BASE:=$HOME/Rooms}"
+fi
+
+BASE="$ROOMSTART_BASE"
+ROOM="${1:-}"
+
+if [ -z "$ROOM" ]; then
+    echo "Uso: newroom NomeRoom"
+    exit 1
+fi
+
+# Niente '/' (uscirebbe da BASE) o nomi che iniziano con '.'
+if [[ "$ROOM" == *"/"* || "$ROOM" == .* ]]; then
+    echo "Errore: nome room non valido (niente '/' e non puo' iniziare con '.')."
+    exit 1
+fi
+
+ROOMDIR="$BASE/$ROOM"
+
+# Chiedi conferma prima di sovrascrivere note gia' esistenti
+if [ -f "$ROOMDIR/notes.md" ]; then
+    read -r -p "La room '$ROOM' esiste gia'. Sovrascrivere notes.md? [y/N] " risposta
+    case "$risposta" in
+        [yY]*) ;;
+        *) echo "Operazione annullata."; exit 1 ;;
+    esac
+fi
+
+mkdir -p "$ROOMDIR"/{scans,loot,exploit,screenshots} || {
+    echo "Errore: impossibile creare le cartelle in $ROOMDIR"
+    exit 1
+}
+
+cat > "$ROOMDIR/notes.md" << EOF
+# $ROOM
+## Target
+IP:
+Dominio:
+Difficoltà:
+Data: $(date +%Y-%m-%d)
+---
+## Credenziali fornite
+Utente:
+Password:
+Note:
+---
+## Nmap
+TCP:
+UDP:
+Versioni:
+Note:
+---
+## Web
+[ ] Homepage
+[ ] Virtual Host
+[ ] robots.txt
+[ ] Source Code
+[ ] Headers
+[ ] Cookies
+[ ] Login
+[ ] Directory Enumeration
+[ ] Subdomain Enumeration
+[ ] API
+Note:
+---
+## Directory trovate
+-
+---
+## Loot
+File trovati:
+Credenziali:
+Hash:
+Chiavi SSH:
+Backup:
+Database:
+Altro:
+---
+## Enumerazione
+Utenti:
+Password:
+Wordlist:
+Servizi:
+Condivisioni:
+Versioni:
+Tecnologie:
+---
+## Accesso iniziale
+Tecnica:
+Comandi utilizzati:
+Credenziali:
+Shell ottenuta:
+---
+## Post Exploitation
+whoami:
+id:
+hostname:
+pwd:
+sudo -l:
+SUID:
+Capabilities:
+Cron:
+Kernel:
+Servizi:
+Gruppi:
+---
+## Privilege Escalation
+Vettore individuato:
+Comandi:
+Note:
+---
+## Flags
+User:
+Root:
+---
+## Todo
+[ ] Leggere descrizione room
+[ ] VPN
+[ ] Nmap
+[ ] Browser
+[ ] Virtual Host
+[ ] Aggiornare /etc/hosts
+[ ] robots.txt
+[ ] Source Code
+[ ] Gobuster
+[ ] Feroxbuster
+[ ] Nikto
+[ ] Searchsploit
+[ ] Credenziali
+[ ] Accesso iniziale
+[ ] Enumerazione locale
+[ ] Privilege Escalation
+[ ] User Flag
+[ ] Root Flag
+---
+## Comandi utili
+-
+---
+## Osservazioni
+-
+---
+## Lezioni imparate
+-
+EOF
+
+touch "$ROOMDIR/report.md"
+echo "Room creata in: $ROOMDIR"
+
+# Il cd vale solo per questo processo: se lo lanci direttamente
+# (./newroom NomeRoom) non sposta la tua shell. Ci pensa roomstart.
+cd "$ROOMDIR" || exit 1

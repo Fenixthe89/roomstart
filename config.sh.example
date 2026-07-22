@@ -1,0 +1,51 @@
+# ============================================================
+# Esempio di configurazione per roomstart/newroom
+#
+# Questo file NON viene letto direttamente: e' solo un
+# riferimento. La configurazione reale si crea con:
+#
+#   ./install.sh
+#
+# che la salva in:
+#
+#   ~/.config/roomstart/config.sh
+#
+# Puoi anche copiarlo li' a mano e modificarlo, se preferisci.
+# ============================================================
+
+# Cartella dove vengono create tutte le room
+ROOMSTART_BASE="$HOME/Rooms"
+
+# Percorso allo script newroom. Lascialo vuoto per farlo
+# individuare automaticamente (prima nella stessa cartella di
+# roomstart, poi nel PATH).
+ROOMSTART_NEWROOM=""
+
+# Porta di default per il listener nc
+ROOMSTART_LISTENER_PORT=4444
+
+# Posizionamento automatico delle finestre (Firefox, Notes,
+# Listener, Terminale). Richiede wmctrl/xdotool e va tarato
+# sulla tua risoluzione/monitor: mettilo a "true" solo dopo
+# aver impostato le coordinate qui sotto.
+ROOMSTART_LAYOUT_ENABLED=false
+
+ROOMSTART_FIREFOX_X=800
+ROOMSTART_FIREFOX_Y=0
+ROOMSTART_FIREFOX_W=1400
+ROOMSTART_FIREFOX_H=1315
+
+ROOMSTART_NOTES_X=2177
+ROOMSTART_NOTES_Y=0
+ROOMSTART_NOTES_W=372
+ROOMSTART_NOTES_H=1243
+
+ROOMSTART_LISTENER_X=10
+ROOMSTART_LISTENER_Y=1059
+ROOMSTART_LISTENER_W=813
+ROOMSTART_LISTENER_H=282
+
+ROOMSTART_MAIN_X=10
+ROOMSTART_MAIN_Y=97
+ROOMSTART_MAIN_W=812
+ROOMSTART_MAIN_H=988
