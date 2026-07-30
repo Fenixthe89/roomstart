@@ -79,9 +79,7 @@ case "$setup_layout" in
         [ -n "$line" ] && read -r notes_x notes_y notes_w notes_h <<< "$line"
         ;;
     *)
-        layout_enabled=false
-        echo "Ok, il posizionamento automatico resta disattivato."
-        echo "Potrai attivarlo in seguito modificando $CONFIG_FILE."
+         echo "Ok, mantengo la configurazione attuale del posizionamento automatico."
         ;;
 esac
 
