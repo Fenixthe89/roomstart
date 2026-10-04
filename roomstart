@@ -1,238 +1,268 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Create or resume the familiar, separate-window CTF workspace.
+set -uo pipefail
+umask 077
 
-# ============================================================
-# Script: roomstart
-# Autore: Fenix89
-# Scopo: preparare automaticamente il workspace per una room
-# ============================================================
+SCRIPT_PATH=$(readlink -f -- "${BASH_SOURCE[0]}") || exit 1
+SCRIPT_DIR=$(cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd) || exit 1
+source "$SCRIPT_DIR/lib/config.sh" || exit 1
+source "$SCRIPT_DIR/lib/state.sh" || exit 1
+source "$SCRIPT_DIR/lib/runtime.sh" || exit 1
+source "$SCRIPT_DIR/lib/windows.sh" || exit 1
+source "$SCRIPT_DIR/lib/notes.sh" || exit 1
 
-# ------------------------------------------------------------
-# Configurazione
-# ------------------------------------------------------------
+fail() { printf 'Errore: %s\n' "$*" >&2; exit 1; }
+usage() {
+    cat <<'HELP'
+Uso: roomstart NomeRoom [--target HOST] [--url URL] [--port PORTA]
+     roomstart NomeRoom --checkpoint "Prossimo passo"
+     roomstart NomeRoom --status
+     roomstart --list
 
-SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
-SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
-
-if [ -f "$SCRIPT_DIR/lib/config.sh" ]; then
-    # shellcheck source=/dev/null
-    source "$SCRIPT_DIR/lib/config.sh"
-else
-    : "${ROOMSTART_BASE:=$HOME/Rooms}"
-    : "${ROOMSTART_NEWROOM:=}"
-    : "${ROOMSTART_LISTENER_PORT:=4444}"
-    : "${ROOMSTART_LAYOUT_ENABLED:=false}"
-fi
-
-BASE="$ROOMSTART_BASE"
-LISTENER_PORT="$ROOMSTART_LISTENER_PORT"
-
-# ------------------------------------------------------------
-# Percorsi
-# ------------------------------------------------------------
-
-ROOM="${1:-}"
-ROOMDIR="$BASE/$ROOM"
-
-MAIN_TERMINAL_ID=$(xdotool getactivewindow)
-
-# ------------------------------------------------------------
-# Geometria finestre
-# (usata solo se ROOMSTART_LAYOUT_ENABLED=true in config.sh)
-# ------------------------------------------------------------
-
-FIREFOX_X="${ROOMSTART_FIREFOX_X:-0}"
-FIREFOX_Y="${ROOMSTART_FIREFOX_Y:-0}"
-FIREFOX_W="${ROOMSTART_FIREFOX_W:-800}"
-FIREFOX_H="${ROOMSTART_FIREFOX_H:-600}"
-
-NOTES_X="${ROOMSTART_NOTES_X:-0}"
-NOTES_Y="${ROOMSTART_NOTES_Y:-0}"
-NOTES_W="${ROOMSTART_NOTES_W:-400}"
-NOTES_H="${ROOMSTART_NOTES_H:-600}"
-
-LISTENER_X="${ROOMSTART_LISTENER_X:-0}"
-LISTENER_Y="${ROOMSTART_LISTENER_Y:-0}"
-LISTENER_W="${ROOMSTART_LISTENER_W:-700}"
-LISTENER_H="${ROOMSTART_LISTENER_H:-280}"
-
-MAIN_X="${ROOMSTART_MAIN_X:-0}"
-MAIN_Y="${ROOMSTART_MAIN_Y:-0}"
-MAIN_W="${ROOMSTART_MAIN_W:-700}"
-MAIN_H="${ROOMSTART_MAIN_H:-800}"
-
-# ------------------------------------------------------------
-# Funzioni
-# ------------------------------------------------------------
-
-wait_for_window_title_id() {
-    local window_title="$1"
-    local window_id=""
-
-    for i in {1..20}; do
-        window_id=$(wmctrl -l |
-            awk -v title="$window_title" \
-                'index($0, title) {print $1; exit}')
-
-        if [ -n "$window_id" ]; then
-            echo "$window_id"
-            return 0
-        fi
-
-        sleep 0.5
-    done
-
-    return 1
+Lo stesso comando crea una room nuova o riapre quella esistente.
+Le note e i materiali esistenti non vengono sovrascritti.
+--checkpoint aggiorna solo l'appunto; --status e --list non aprono finestre.
+--target "" e --url "" cancellano il valore memorizzato al prossimo avvio.
+HELP
 }
 
-wait_for_window_class() {
-    local window_class="$1"
-    local window_id=""
-
-    for i in {1..20}; do
-        window_id=$(wmctrl -lx |
-            awk -v class="$window_class" \
-                'tolower($0) ~ tolower(class) {print $1; exit}')
-
-        if [ -n "$window_id" ]; then
-            echo "$window_id"
-            return 0
-        fi
-
-        sleep 0.5
-    done
-
-    return 1
-}
-
-move_window_by_id() {
-    local window_id="$1"
-    local x="$2"
-    local y="$3"
-    local width="$4"
-    local height="$5"
-
-    wmctrl -i -r "$window_id" \
-        -e "0,$x,$y,$width,$height"
-}
-
-# Trova newroom: prima nella config, poi accanto a roomstart
-# (caso tipico: repo clonato ma non installato), infine nel PATH.
-resolve_newroom() {
-    if [ -n "$ROOMSTART_NEWROOM" ] && [ -x "$ROOMSTART_NEWROOM" ]; then
-        echo "$ROOMSTART_NEWROOM"
-        return 0
-    fi
-
-    if [ -x "$SCRIPT_DIR/newroom" ]; then
-        echo "$SCRIPT_DIR/newroom"
-        return 0
-    fi
-
-    if command -v newroom >/dev/null 2>&1; then
-        command -v newroom
-        return 0
-    fi
-
-    return 1
-}
-
-# ------------------------------------------------------------
-# Controlli
-# ------------------------------------------------------------
-
-if [ -z "$ROOM" ]; then
-    echo "Uso: roomstart NomeRoom"
-    exit 1
-fi
-
-NEWROOM="$(resolve_newroom)"
-if [ -z "$NEWROOM" ]; then
-    echo "Errore: script newroom non trovato."
-    echo "Esegui install.sh oppure metti newroom nel PATH."
-    exit 1
-fi
-
-for command_name in firefox qterminal wmctrl nano nc xdotool; do
-    if ! command -v "$command_name" >/dev/null 2>&1; then
-        echo "Errore: comando '$command_name' non trovato."
-        exit 1
-    fi
+ROOM= MODE=open TARGET_ARG= URL_ARG= PORT_ARG= CHECKPOINT_ARG=
+HAS_TARGET=false HAS_URL=false HAS_PORT=false HAS_CHECKPOINT=false
+while (($#)); do
+    case $1 in
+        -h|--help) usage; exit 0 ;;
+        --list|--status)
+            [[ $MODE == open ]] || fail 'Scegli una sola operazione.'
+            MODE=${1#--}; shift ;;
+        --target|--url|--port|--checkpoint)
+            (($# >= 2)) || fail "Manca il valore per $1."
+            case $1 in
+                --target) TARGET_ARG=$2; HAS_TARGET=true ;;
+                --url) URL_ARG=$2; HAS_URL=true ;;
+                --port) PORT_ARG=$2; HAS_PORT=true ;;
+                --checkpoint) CHECKPOINT_ARG=$2; HAS_CHECKPOINT=true ;;
+            esac
+            shift 2 ;;
+        --*) fail "Opzione sconosciuta: $1" ;;
+        *) [[ -z $ROOM ]] || fail 'Indica una sola room.'; ROOM=$1; shift ;;
+    esac
 done
 
-# ------------------------------------------------------------
-# Creazione room
-# ------------------------------------------------------------
+if [[ $MODE == list ]]; then
+    [[ -z $ROOM && $HAS_TARGET == false && $HAS_URL == false && $HAS_PORT == false && $HAS_CHECKPOINT == false ]] || fail '--list non accetta altri argomenti.'
+    rs_list_rooms "$ROOMSTART_BASE"
+    exit $?
+fi
+[[ -n $ROOM ]] || { usage >&2; exit 1; }
+rs_validate_name "$ROOM" || fail 'Nome room non valido.'
+if $HAS_CHECKPOINT; then
+    [[ $MODE == open && $HAS_TARGET == false && $HAS_URL == false && $HAS_PORT == false ]] || fail '--checkpoint si usa da solo con il nome della room.'
+    ((${#CHECKPOINT_ARG} <= 4096)) || fail 'Checkpoint troppo lungo (massimo 4096 caratteri).'
+    MODE=checkpoint
+fi
+if [[ $MODE == status ]]; then
+    [[ $HAS_TARGET == false && $HAS_URL == false && $HAS_PORT == false ]] || fail '--status e una lettura: non accetta modifiche.'
+fi
+$HAS_TARGET && { rs_validate_target "$TARGET_ARG" || fail 'Target non valido: usa IP o hostname senza spazi.'; }
+$HAS_URL && { rs_validate_url "$URL_ARG" || fail 'URL non valido: usa http:// o https:// senza spazi.'; }
+$HAS_PORT && { rs_validate_port "$PORT_ARG" || fail 'Porta non valida (1-65535).'; }
+if [[ $MODE == status || $MODE == checkpoint ]]; then
+    [[ -d $ROOMSTART_BASE ]] || fail "La room '$ROOM' non esiste."
+fi
+ROOMDIR=$(rs_room_path "$ROOMSTART_BASE" "$ROOM") || exit 1
 
-"$NEWROOM" "$ROOM" || exit 1
+read_metadata() {
+    TARGET=$(rs_state_get "$ROOMDIR" target '') || fail 'Impossibile leggere il target.'
+    URL=$(rs_state_get "$ROOMDIR" url '') || fail 'Impossibile leggere URL.'
+    PORT=$(rs_state_get "$ROOMDIR" port "$ROOMSTART_LISTENER_PORT") || fail 'Impossibile leggere la porta.'
+    CHECKPOINT=$(rs_state_get "$ROOMDIR" checkpoint '') || fail 'Impossibile leggere il checkpoint.'
+    LAST=$(rs_state_get "$ROOMDIR" last_session '') || fail 'Impossibile leggere ultima sessione.'
+    rs_validate_target "$TARGET" || fail 'Target memorizzato non valido.'
+    rs_validate_url "$URL" || fail 'URL memorizzato non valido.'
+    rs_validate_port "$PORT" || fail 'Porta memorizzata non valida.'
+    rs_state_value_valid checkpoint "$CHECKPOINT" || fail 'Checkpoint memorizzato non valido.'
+    [[ -z $LAST || $LAST =~ ^[A-Za-z0-9_.-]+$ && $LAST != .* ]] || fail 'Identificativo sessione non valido.'
+}
 
-# ------------------------------------------------------------
-# Apertura applicazioni
-# ------------------------------------------------------------
+show_summary() {
+    printf '\nRoom:             %s\n' "$ROOM"
+    printf 'Target salvato:    %s\n' "${TARGET:-non impostato}"
+    printf 'Pagina:           %s\n' "${URL:-non impostata}"
+    printf 'Listener:         porta %s\n' "$PORT"
+    printf 'Ultima sessione:  %s\n' "${LAST:-nessuna}"
+    printf 'Materiali:        %s\n' "$ROOMDIR"
+    [[ -z $CHECKPOINT ]] || printf '\nDove eri rimasto:\n%s\n' "$CHECKPOINT"
+    printf '\n'
+}
 
-# --new-window riduce (ma non elimina del tutto) il rischio di
-# agganciare per sbaglio una finestra Firefox gia' aperta.
-firefox --new-window &
-
-qterminal \
-    --title "Listener - $ROOM" \
-    --workdir "$ROOMDIR" \
-    -e bash -c "nc -lvnp $LISTENER_PORT; exec bash" &
-
-qterminal \
-    --title "Notes - $ROOM" \
-    --workdir "$ROOMDIR" \
-    -e nano notes.md &
-
-sleep 1
-
-# ------------------------------------------------------------
-# Posizionamento finestre (opzionale)
-# ------------------------------------------------------------
-
-if [ "$ROOMSTART_LAYOUT_ENABLED" = "true" ]; then
-
-    FIREFOX_ID=$(wait_for_window_class "firefox")
-    if [ -n "$FIREFOX_ID" ]; then
-        wmctrl -i -r "$FIREFOX_ID" -b remove,maximized_vert,maximized_horz
-        sleep 0.3
-        move_window_by_id "$FIREFOX_ID" "$FIREFOX_X" "$FIREFOX_Y" "$FIREFOX_W" "$FIREFOX_H"
-    else
-        echo "Errore: finestra Firefox non trovata."
-    fi
-
-    NOTES_ID=$(wait_for_window_title_id "Notes - $ROOM")
-    if [ -n "$NOTES_ID" ]; then
-        wmctrl -i -r "$NOTES_ID" -b remove,maximized_vert,maximized_horz
-        sleep 0.2
-        move_window_by_id "$NOTES_ID" "$NOTES_X" "$NOTES_Y" "$NOTES_W" "$NOTES_H"
-    else
-        echo "Errore: finestra Notes non trovata."
-    fi
-
-    LISTENER_ID=$(wait_for_window_title_id "Listener - $ROOM")
-    if [ -n "$LISTENER_ID" ]; then
-        wmctrl -i -r "$LISTENER_ID" -b remove,maximized_vert,maximized_horz
-        sleep 0.2
-        move_window_by_id "$LISTENER_ID" "$LISTENER_X" "$LISTENER_Y" "$LISTENER_W" "$LISTENER_H"
-    else
-        echo "Errore: finestra Listener non trovata."
-    fi
-
-    if [ -n "$MAIN_TERMINAL_ID" ]; then
-        wmctrl -i -r "$MAIN_TERMINAL_ID" -b remove,maximized_vert,maximized_horz
-        sleep 0.2
-        move_window_by_id "$MAIN_TERMINAL_ID" "$MAIN_X" "$MAIN_Y" "$MAIN_W" "$MAIN_H"
-    else
-        echo "Errore: terminale principale non trovato."
-    fi
-
-    sleep 0.2
-    xdotool windowactivate "$MAIN_TERMINAL_ID"
+if [[ $MODE == status ]]; then
+    [[ -d $ROOMDIR ]] || fail "La room '$ROOM' non esiste."
+    read_metadata
+    show_summary
+    for role in main listener notes; do
+        if command -v flock >/dev/null 2>&1; then
+            if rs_role_active "$ROOMDIR" "$role"; then
+                printf '%-10s attivo\n' "$role"
+            else
+                status_code=$?
+                ((status_code == 1)) || fail 'Stato runtime non valido.'
+                previous=mai-avviato
+                role_state="$ROOMDIR/.roomstart/sessions/$LAST/$role.status"
+                [[ ! -L $ROOMDIR/.roomstart/sessions && ! -L $ROOMDIR/.roomstart/sessions/$LAST ]] || fail 'Percorso sessioni non valido.'
+                if [[ -n $LAST && -f $role_state && ! -L $role_state ]]; then
+                    previous=$(cat -- "$role_state")
+                    case $previous in running|completed|interrupted|failed) ;; *) fail 'Stato sessione non valido.';; esac
+                    [[ $previous != running ]] || previous=interrupted
+                fi
+                printf '%-10s %s\n' "$role" "$previous"
+            fi
+        else
+            printf '%-10s non verificabile (flock non disponibile)\n' "$role"
+        fi
+    done
+    exit 0
 fi
 
-# ------------------------------------------------------------
-# Trasforma il terminale corrente nel terminale principale della room 
-# ------------------------------------------------------------
+if [[ $MODE == checkpoint ]]; then
+    [[ -d $ROOMDIR ]] || fail "La room '$ROOM' non esiste."
+    rs_state_init "$ROOMDIR" "$ROOMSTART_LISTENER_PORT" || exit 1
+    rs_state_set "$ROOMDIR" checkpoint "$CHECKPOINT_ARG" || exit 1
+    printf 'Checkpoint salvato per %s.\n' "$ROOM"
+    exit 0
+fi
 
-cd "$ROOMDIR" || exit 1
-exec "$SHELL" -i
+[[ -z ${ROOMSTART_ROOM:-} || $ROOMSTART_ROOM == "$ROOMDIR" ]] || fail 'Per aprire un’altra room usa un terminale esterno alla sessione corrente.'
+[[ -n ${DISPLAY:-} ]] || fail 'Avvio finestre disponibile in una sessione grafica X11 (DISPLAY mancante).'
+[[ ${XDG_SESSION_TYPE:-x11} != wayland ]] || fail 'Questa versione del layout richiede una sessione X11.'
+for app in firefox qterminal nano nc script flock setsid ss wmctrl xdotool xprop; do
+    command -v "$app" >/dev/null 2>&1 || fail "Comando richiesto non trovato: $app"
+done
+SCRIPT_HELP=$(script --help 2>&1) || fail 'Impossibile verificare script.'
+[[ $SCRIPT_HELP == *--log-out* ]] || fail 'Serve script di util-linux con supporto --log-out.'
+USER_SHELL=${SHELL:-/bin/bash}
+[[ $USER_SHELL == /* && -x $USER_SHELL && ! -d $USER_SHELL ]] || fail 'SHELL deve indicare un eseguibile con percorso assoluto.'
+
+NEWROOM=${ROOMSTART_NEWROOM:-$SCRIPT_DIR/newroom}
+[[ -x $NEWROOM ]] || fail "newroom non eseguibile: $NEWROOM"
+"$NEWROOM" "$ROOM" || exit 1
+rs_state_init "$ROOMDIR" "$ROOMSTART_LISTENER_PORT" || exit 1
+rs_runtime_init "$ROOMDIR" || exit 1
+LAUNCH_LOCK="$ROOMDIR/.roomstart/runtime/launch.lock"
+[[ ! -L $LAUNCH_LOCK && ( ! -e $LAUNCH_LOCK || -f $LAUNCH_LOCK ) ]] || fail 'Lock avvio non valido.'
+exec 8>>"$LAUNCH_LOCK" || exit 1
+flock -n 8 || fail 'Questa room si sta gia aprendo. Riprova tra un momento.'
+read_metadata
+OLD_TARGET=$TARGET OLD_URL=$URL OLD_PORT=$((10#$PORT))
+$HAS_TARGET && TARGET=$TARGET_ARG
+$HAS_URL && URL=$URL_ARG
+$HAS_PORT && PORT=$PORT_ARG
+PORT=$((10#$PORT))
+
+ANY_ACTIVE=false MAIN_ACTIVE=false LISTENER_ACTIVE=false NOTES_ACTIVE=false
+SESSIONDIR=
+for role in main listener notes; do
+    if rs_role_active "$ROOMDIR" "$role"; then
+        ANY_ACTIVE=true
+        case $role in main) MAIN_ACTIVE=true;; listener) LISTENER_ACTIVE=true;; notes) NOTES_ACTIVE=true;; esac
+        active_session=$(rs_role_session "$ROOMDIR" "$role") || fail "Sessione $role non riconoscibile: chiudi quel terminale prima di riprovare."
+        [[ -n $SESSIONDIR ]] || SESSIONDIR=$active_session
+    else
+        status_code=$?
+        ((status_code == 1)) || fail 'Runtime non valido.'
+    fi
+done
+if $ANY_ACTIVE && [[ $TARGET != "$OLD_TARGET" || $URL != "$OLD_URL" || $PORT != "$OLD_PORT" ]]; then
+    fail 'La room ha terminali attivi. Chiudili prima di cambiare target, URL o porta.'
+fi
+
+if ! $ANY_ACTIVE && [[ -z $LAST && -t 0 ]]; then
+    if ! $HAS_TARGET && [[ -z $TARGET ]]; then
+        read -r -p 'IP o hostname bersaglio (facoltativo, invio per saltare): ' TARGET || TARGET=
+        rs_validate_target "$TARGET" || fail 'Target non valido.'
+    fi
+    if ! $HAS_URL && [[ -z $URL ]]; then
+        read -r -p 'URL della room (facoltativo, invio per saltare): ' URL || URL=
+        rs_validate_url "$URL" || fail 'URL non valido.'
+    fi
+fi
+
+if ! $LISTENER_ACTIVE; then
+    while :; do
+        occupied=$(ss -H -ltn "sport = :$PORT" 2>/dev/null) || fail 'Impossibile verificare la porta del listener.'
+        [[ -n $occupied ]] || break
+        printf 'La porta %s e occupata da un altro processo.\n' "$PORT" >&2
+        [[ -t 0 ]] || fail 'Usa --port con una porta libera.'
+        read -r -p 'Altra porta (invio per annullare): ' PORT || exit 1
+        [[ -n $PORT ]] || exit 1
+        rs_validate_port "$PORT" || fail 'Porta non valida (1-65535).'
+        PORT=$((10#$PORT))
+        $ANY_ACTIVE && fail 'Chiudi la sessione attiva prima di cambiare porta.'
+    done
+fi
+
+rs_state_set "$ROOMDIR" target "$TARGET" || exit 1
+rs_state_set "$ROOMDIR" url "$URL" || exit 1
+rs_state_set "$ROOMDIR" port "$PORT" || exit 1
+if ! $NOTES_ACTIVE && [[ -n $TARGET || $HAS_TARGET == true ]]; then
+    rs_notes_target "$ROOMDIR" "$TARGET" || fail 'Impossibile aggiornare il target nelle note.'
+fi
+if [[ -z $SESSIONDIR ]]; then SESSIONDIR=$(rs_new_session "$ROOMDIR") || exit 1; fi
+[[ -d $SESSIONDIR && ! -L $SESSIONDIR ]] || fail 'Directory sessione non valida.'
+export ROOMSTART_ROOM="$ROOMDIR" ROOMSTART_TARGET="$TARGET" ROOMSTART_LISTENER_PORT="$PORT"
+show_summary
+printf 'Registrazioni della sessione: %s\n\n' "$SESSIONDIR"
+
+if ! $MAIN_ACTIVE; then
+    MAIN_WINDOW=$(xdotool getactivewindow 2>/dev/null) || MAIN_WINDOW=
+    if [[ -n $MAIN_WINDOW ]]; then
+        rs_window_remember "$ROOMDIR" main "$MAIN_WINDOW" || printf 'Avviso: finestra principale non identificata; posizione invariata.\n' >&2
+    fi
+fi
+
+if ! rs_window_get "$ROOMDIR" browser >/dev/null; then
+    before=$(rs_window_ids)
+    if [[ -n $URL ]]; then
+        firefox --new-window "$URL" 8>&- >/dev/null 2>&1 &
+    else
+        firefox --new-window about:blank 8>&- >/dev/null 2>&1 &
+    fi
+    if id=$(rs_window_new "$before" firefox); then
+        rs_window_remember "$ROOMDIR" browser "$id" || printf 'Avviso: finestra Firefox non registrata.\n' >&2
+    else
+        printf 'Avviso: nuova finestra Firefox non identificata; non sposto altre finestre.\n' >&2
+    fi
+fi
+
+launch_terminal() {
+    local role=$1 title=$2 before id attempt started=false
+    shift 2
+    before=$(rs_window_ids)
+    qterminal --workdir "$ROOMDIR" \
+        -e bash "$SCRIPT_DIR/lib/session.sh" "$ROOMDIR" "$SESSIONDIR" "$role" "$@" 8>&- &
+    if id=$(rs_window_new "$before" qterminal); then
+        wmctrl -i -r "$id" -T "$title" || true
+        rs_window_remember "$ROOMDIR" "$role" "$id" || printf 'Avviso: finestra %s non registrata.\n' "$role" >&2
+    fi
+    for ((attempt=0; attempt<30; attempt++)); do
+        if rs_role_active "$ROOMDIR" "$role"; then started=true; break; fi
+        [[ ! -f $SESSIONDIR/$role.ended ]] || break
+        sleep 0.1
+    done
+    $started || printf 'Avviso: %s non risulta attivo; controlla il terminale e il registro della sessione.\n' "$role" >&2
+}
+
+$LISTENER_ACTIVE || launch_terminal listener "Listener - $ROOM" "$PORT"
+$NOTES_ACTIVE || launch_terminal notes "Notes - $ROOM"
+for role in browser listener notes main; do
+    rs_window_layout "$ROOMDIR" "$role" || printf 'Avviso: impossibile riposizionare %s.\n' "$role" >&2
+done
+
+if $MAIN_ACTIVE; then
+    rs_window_focus "$ROOMDIR" main || true
+    printf 'Room gia attiva: riutilizzo i terminali esistenti.\n'
+    exec 8>&-
+    exit 0
+fi
+rs_window_focus "$ROOMDIR" main || true
+# The wrapper takes the main role lock before releasing inherited launch fd 8.
+exec bash "$SCRIPT_DIR/lib/session.sh" "$ROOMDIR" "$SESSIONDIR" main "$USER_SHELL"

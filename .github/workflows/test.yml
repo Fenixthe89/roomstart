@@ -1,0 +1,28 @@
+name: Bash checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Bash syntax
+        run: |
+          for file in roomstart newroom install.sh config.sh.example; do bash -n "$file"; done
+          find lib tests -type f -name '*.sh' -print0 | xargs -0 -r -n 1 bash -n
+      - name: Check room creation and persisted state
+        run: bash tests/test_state.sh
+      - name: Check session recording and runtime locks
+        run: bash tests/test_runtime.sh
+      - name: Check CLI and simulated desktop
+        run: bash tests/test_cli.sh
+      - name: Check installer
+        run: bash tests/test_install.sh
+      - name: Check automatic target in notes
+        run: bash tests/test_notes.sh

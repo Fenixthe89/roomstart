@@ -5,159 +5,77 @@
 # Scopo: creare automaticamente la struttura di una nuova room
 # ============================================================
 
-# Config condivisa con roomstart (fallback se manca lib/config.sh)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve the executable itself, including ~/.local/bin symlink installs.
+SCRIPT_PATH="$(readlink -f -- "${BASH_SOURCE[0]}")" || exit 1
+SCRIPT_DIR="$(cd -- "$(dirname -- "$SCRIPT_PATH")" && pwd -P)" || exit 1
+
+# shellcheck source=lib/state.sh
+source "$SCRIPT_DIR/lib/state.sh" || exit 1
 
 if [ -f "$SCRIPT_DIR/lib/config.sh" ]; then
     # shellcheck source=/dev/null
-    source "$SCRIPT_DIR/lib/config.sh"
+    source "$SCRIPT_DIR/lib/config.sh" || exit 1
 else
     : "${ROOMSTART_BASE:=$HOME/Rooms}"
+    : "${ROOMSTART_LISTENER_PORT:=4444}"
 fi
 
 BASE="$ROOMSTART_BASE"
 ROOM="${1:-}"
 
-if [ -z "$ROOM" ]; then
+if [ "$#" -ne 1 ] || [ -z "$ROOM" ]; then
     echo "Uso: newroom NomeRoom"
     exit 1
 fi
 
-# Niente '/' (uscirebbe da BASE) o nomi che iniziano con '.'
-if [[ "$ROOM" == *"/"* || "$ROOM" == .* ]]; then
-    echo "Errore: nome room non valido (niente '/' e non puo' iniziare con '.')."
+if ! rs_validate_name "$ROOM"; then
+    echo "Errore: nome room non valido (niente separatori, controlli o prefissi '.'/'-')." >&2
     exit 1
 fi
 
-ROOMDIR="$BASE/$ROOM"
+ROOMDIR=$(rs_room_path "$BASE" "$ROOM") || exit 1
+rs_validate_port "$ROOMSTART_LISTENER_PORT" || { rs_error 'Porta listener non valida.'; exit 1; }
 
-# Chiedi conferma prima di sovrascrivere note gia' esistenti
-if [ -f "$ROOMDIR/notes.md" ]; then
-    read -r -p "La room '$ROOM' esiste gia'. Sovrascrivere notes.md? [y/N] " risposta
-    case "$risposta" in
-        [yY]*) ;;
-        *) echo "Operazione annullata."; exit 1 ;;
-    esac
-fi
-
-mkdir -p "$ROOMDIR"/{scans,loot,exploit,screenshots} || {
+mkdir -p -- "$ROOMDIR" || exit 1
+# Existing links/files are preserved, but are not used for new writes.
+for entry in scans loot exploit screenshots; do
+    if [[ -L "$ROOMDIR/$entry" || ( -e "$ROOMDIR/$entry" && ! -d "$ROOMDIR/$entry" ) ]]; then
+        rs_error "Cartella della room non sicura: $entry"
+        exit 1
+    fi
+done
+mkdir -p -- "$ROOMDIR"/{scans,loot,exploit,screenshots} || {
     echo "Errore: impossibile creare le cartelle in $ROOMDIR"
     exit 1
 }
 
-cat > "$ROOMDIR/notes.md" << EOF
+# Reopening a room never replaces notes or a report. Noclobber also covers
+# another process creating notes between this check and opening the file.
+if [[ ! -e "$ROOMDIR/notes.md" && ! -L "$ROOMDIR/notes.md" ]]; then
+if ! (set -o noclobber; cat > "$ROOMDIR/notes.md" << EOF
 # $ROOM
+
 ## Target
 IP:
-Dominio:
-Difficoltà:
-Data: $(date +%Y-%m-%d)
----
-## Credenziali fornite
-Utente:
-Password:
-Note:
----
-## Nmap
-TCP:
-UDP:
-Versioni:
-Note:
----
-## Web
-[ ] Homepage
-[ ] Virtual Host
-[ ] robots.txt
-[ ] Source Code
-[ ] Headers
-[ ] Cookies
-[ ] Login
-[ ] Directory Enumeration
-[ ] Subdomain Enumeration
-[ ] API
-Note:
----
-## Directory trovate
--
----
-## Loot
-File trovati:
-Credenziali:
-Hash:
-Chiavi SSH:
-Backup:
-Database:
-Altro:
----
-## Enumerazione
-Utenti:
-Password:
-Wordlist:
-Servizi:
-Condivisioni:
-Versioni:
-Tecnologie:
----
-## Accesso iniziale
-Tecnica:
-Comandi utilizzati:
-Credenziali:
-Shell ottenuta:
----
-## Post Exploitation
-whoami:
-id:
-hostname:
-pwd:
-sudo -l:
-SUID:
-Capabilities:
-Cron:
-Kernel:
-Servizi:
-Gruppi:
----
-## Privilege Escalation
-Vettore individuato:
-Comandi:
-Note:
----
-## Flags
-User:
-Root:
----
-## Todo
-[ ] Leggere descrizione room
-[ ] VPN
-[ ] Nmap
-[ ] Browser
-[ ] Virtual Host
-[ ] Aggiornare /etc/hosts
-[ ] robots.txt
-[ ] Source Code
-[ ] Gobuster
-[ ] Feroxbuster
-[ ] Nikto
-[ ] Searchsploit
-[ ] Credenziali
-[ ] Accesso iniziale
-[ ] Enumerazione locale
-[ ] Privilege Escalation
-[ ] User Flag
-[ ] Root Flag
----
-## Comandi utili
--
----
-## Osservazioni
--
----
-## Lezioni imparate
--
-EOF
 
-touch "$ROOMDIR/report.md"
-echo "Room creata in: $ROOMDIR"
+## Appunti e risultati
+
+## Credenziali e flag
+
+## Prossimo passo
+
+EOF
+); then
+    rs_error 'Impossibile creare notes.md; nessun file esistente viene sovrascritto.'
+    exit 1
+fi
+fi
+
+if [[ ! -e "$ROOMDIR/report.md" && ! -L "$ROOMDIR/report.md" ]]; then
+    (set -o noclobber; : > "$ROOMDIR/report.md") || exit 1
+fi
+rs_state_init "$ROOMDIR" "$ROOMSTART_LISTENER_PORT" || exit 1
+echo "Room pronta in: $ROOMDIR"
 
 # Il cd vale solo per questo processo: se lo lanci direttamente
 # (./newroom NomeRoom) non sposta la tua shell. Ci pensa roomstart.

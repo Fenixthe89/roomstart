@@ -1,33 +1,22 @@
-# ============================================================
-# Esempio di configurazione per roomstart/newroom
-#
-# Questo file NON viene letto direttamente: e' solo un
-# riferimento. La configurazione reale si crea con:
-#
-#   ./install.sh
-#
-# che la salva in:
-#
-#   ~/.config/roomstart/config.sh
-#
-# Puoi anche copiarlo li' a mano e modificarlo, se preferisci.
-# ============================================================
+# Esempio: copia in ${XDG_CONFIG_HOME:-$HOME/.config}/roomstart/config.sh
+# oppure usa ./install.sh. Questo file di esempio non viene letto direttamente.
+# La configurazione personale e' Bash locale: usa solo contenuti fidati.
+# I metadati delle singole room, invece, sono file di testo.
 
-# Cartella dove vengono create tutte le room
+# Cartella delle room. Mantieni lo stesso percorso per ritrovare quelle esistenti.
 ROOMSTART_BASE="$HOME/Rooms"
 
-# Percorso allo script newroom. Lascialo vuoto per farlo
-# individuare automaticamente (prima nella stessa cartella di
-# roomstart, poi nel PATH).
+# Percorso personalizzato a newroom; vuoto usa quello incluso nel progetto.
+# install.sh mantiene questo valore durante gli aggiornamenti.
 ROOMSTART_NEWROOM=""
 
-# Porta di default per il listener nc
+# Porta usata per nuove room; una room esistente conserva la propria porta.
+# Intervallo valido: 1-65535. Puoi cambiarla con roomstart NomeRoom --port 4445.
 ROOMSTART_LISTENER_PORT=4444
 
-# Posizionamento automatico delle finestre (Firefox, Notes,
-# Listener, Terminale). Richiede wmctrl/xdotool e va tarato
-# sulla tua risoluzione/monitor: mettilo a "true" solo dopo
-# aver impostato le coordinate qui sotto.
+# Layout delle finestre separate. Richiede X11, wmctrl, xdotool, xprop.
+# Adatta le coordinate ai tuoi monitor prima di abilitare il posizionamento.
+# X/Y ammettono valori negativi; W/H devono essere positive.
 ROOMSTART_LAYOUT_ENABLED=false
 
 ROOMSTART_FIREFOX_X=800

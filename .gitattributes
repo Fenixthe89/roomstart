@@ -1,0 +1,8 @@
+* text=auto
+.gitattributes text eol=lf
+*.sh text eol=lf
+*.sh.example text eol=lf
+roomstart text eol=lf
+newroom text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
