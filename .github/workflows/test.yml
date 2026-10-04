@@ -26,3 +26,5 @@ jobs:
         run: bash tests/test_install.sh
       - name: Check automatic target in notes
         run: bash tests/test_notes.sh
+      - name: Check interactive room helpers
+        run: bash tests/test_helpers.sh

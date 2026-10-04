@@ -1,0 +1,3 @@
+ZDOTDIR=$ROOMSTART_ORIGINAL_ZDOTDIR
+[[ ! -f "$ZDOTDIR/.zshrc" ]] || source "$ZDOTDIR/.zshrc"
+source "$ROOMSTART_INTERACTIVE"

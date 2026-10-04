@@ -235,3 +235,26 @@ La pipeline GitHub esegue questi controlli su Linux. Il posizionamento
 reale delle finestre e il comportamento del desktop richiedono anche una
 prova manuale in X11: apri una room, avviala una seconda volta, chiudi
 uno strumento, riaprila e verifica che note e materiali restino presenti.
+
+## Target nei comandi
+
+Il terminale della room espone la variabile `IP`, valorizzata con il target salvato (IP o hostname). Esempio: `nmap -sV "$IP"`. Il valore viene ripristinato quando riapri la room; la variabile Ã¨ disponibile nei terminali avviati da Roomstart.
+
+## Comandi nella room (Bash e Zsh)
+
+Il terminale mostra il checkpoint salvato all'apertura. Per aggiornarlo:
+
+```bash
+roomnext "Controllare il sito sulla porta 8080"
+roomnote "Porta 8080: Tomcat"
+roomtarget 10.10.10.25
+nmap -sV "$IP"
+```
+
+`roomnote` salva appunti datati in `appunti.md`, separato da `notes.md` per non
+perdere modifiche non salvate nell'editor. `roomtarget` aggiorna il target salvato
+e `$IP` nella shell corrente; le altre shell e i comandi già in esecuzione
+mantengono il valore precedente. Se Nano è aperto, il campo IP in `notes.md`
+viene aggiornato al prossimo avvio dell'editor. Le registrazioni delle sessioni
+conservano il target iniziale come riferimento storico.
+Le cartelle `scans`, `loot`, `exploit` e `screenshots` sono già create da newroom.

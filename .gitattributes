@@ -6,3 +6,5 @@ roomstart text eol=lf
 newroom text eol=lf
 *.md text eol=lf
 *.yml text eol=lf
+lib/bashrc text eol=lf
+lib/zsh/.zshrc text eol=lf

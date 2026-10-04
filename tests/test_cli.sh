@@ -89,6 +89,7 @@ printf '%s\n' "${session##*/}" > "$room/.roomstart/runtime/$role.session"
 printf 'running\n' > "$session/$role.status"
 printf 'preserved output\n' >> "$session/$role.log"
 [[ $role != main ]] || printf '%s\n' "$ROOMSTART_TARGET" > "$session/environment-target"
+[[ $role != main ]] || printf '%s\n' "$IP" > "$session/environment-ip"
 MOCK
 chmod +x "$TEST_ROOT/bin/"*
 export PATH="$TEST_ROOT/bin:$PATH"
@@ -118,6 +119,7 @@ session="$room/.roomstart/sessions/$session_id"
 same "$(cat "$session/target")" 10.10.10.20
 ok grep -Fxq 'IP: 10.10.10.20' "$room/notes.md"
 same "$(cat "$session/environment-target")" 10.10.10.20
+same "$(cat "$session/environment-ip")" 10.10.10.20
 same "$(cat "$room/.roomstart/url")" 'https://example.lab/room?q=a&b=2'
 same "$(grep -c '^firefox ' "$MOCK_CALLS")" 1
 same "$(grep -c '^qterminal ' "$MOCK_CALLS")" 2

@@ -42,7 +42,16 @@ case "$role" in
         [[ $# == 1 && -x "$1" && ! -d "$1" ]] || exit 2
         # script itself uses Bash to interpret our escaped command, but the
         # interactive user's shell must retain its own SHELL environment.
-        target_command=(env "SHELL=$1" "$1" -i)
+        export ROOMSTART_HELPER="$SESSION_SCRIPT_DIR/helper.sh"
+        export ROOMSTART_INTERACTIVE="$SESSION_SCRIPT_DIR/interactive.sh"
+        case ${1##*/} in
+            bash) target_command=(env "SHELL=$1" "$1" --rcfile "$SESSION_SCRIPT_DIR/bashrc" -i) ;;
+            zsh)
+                export ROOMSTART_ORIGINAL_ZDOTDIR="${ZDOTDIR:-$HOME}"
+                target_command=(env "SHELL=$1" "ZDOTDIR=$SESSION_SCRIPT_DIR/zsh" "$1" -i)
+                ;;
+            *) target_command=(env "SHELL=$1" "$1" -i) ;;
+        esac
         ;;
     listener)
         [[ $# == 1 && $1 =~ ^[0-9]{1,5}$ ]] || exit 2

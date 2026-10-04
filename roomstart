@@ -208,7 +208,7 @@ if ! $NOTES_ACTIVE && [[ -n $TARGET || $HAS_TARGET == true ]]; then
 fi
 if [[ -z $SESSIONDIR ]]; then SESSIONDIR=$(rs_new_session "$ROOMDIR") || exit 1; fi
 [[ -d $SESSIONDIR && ! -L $SESSIONDIR ]] || fail 'Directory sessione non valida.'
-export ROOMSTART_ROOM="$ROOMDIR" ROOMSTART_TARGET="$TARGET" ROOMSTART_LISTENER_PORT="$PORT"
+export ROOMSTART_ROOM="$ROOMDIR" ROOMSTART_TARGET="$TARGET" ROOMSTART_LISTENER_PORT="$PORT" IP="$TARGET"
 show_summary
 printf 'Registrazioni della sessione: %s\n\n' "$SESSIONDIR"
 
